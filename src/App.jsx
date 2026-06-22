@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-const METRICS_URL = import.meta.env.VITE_METRICS_URL || 'https://quiz-futuroterapia.lovable.app/api/public/quiz-metrics';
+const METRICS_URL = import.meta.env.VITE_METRICS_URL || 'https://descubra.futuroterapia.com/api/public/quiz-metrics';
 
 function PasscodeGate({ onUnlock }) {
   const [value, setValue] = useState('');
