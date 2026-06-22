@@ -1,0 +1,35 @@
+// Lista leve (id + name) usada só para popular o filtro do dashboard.
+// É uma cópia dos ids/nomes do quiz (Projeto2- Lovabel/src/data/therapies.js).
+// Se novas terapias forem adicionadas no quiz, replique aqui.
+
+export const therapies = [
+  { id: 'acupuntura', name: 'Acupuntura / MTC' },
+  { id: 'apiterapia', name: 'Apiterapia' },
+  { id: 'aromaterapia', name: 'Aromaterapia' },
+  { id: 'arteterapia', name: 'Arteterapia' },
+  { id: 'ayurveda', name: 'Ayurveda' },
+  { id: 'biodanca', name: 'Biodança' },
+  { id: 'bioenergetica', name: 'Bioenergética' },
+  { id: 'constelacao', name: 'Constelação Familiar' },
+  { id: 'cromoterapia', name: 'Cromoterapia' },
+  { id: 'danca_circular', name: 'Dança Circular' },
+  { id: 'geoterapia', name: 'Geoterapia' },
+  { id: 'hipnoterapia', name: 'Hipnoterapia' },
+  { id: 'homeopatia', name: 'Homeopatia' },
+  { id: 'imposicao_maos', name: 'Imposição de Mãos' },
+  { id: 'med_antroposofica', name: 'Medicina Antroposófica' },
+  { id: 'meditacao', name: 'Meditação / Mindfulness' },
+  { id: 'musicoterapia', name: 'Musicoterapia' },
+  { id: 'naturopatia', name: 'Naturopatia' },
+  { id: 'osteopatia', name: 'Osteopatia' },
+  { id: 'ozonioterapia', name: 'Ozonioterapia' },
+  { id: 'fitoterapia', name: 'Fitoterapia' },
+  { id: 'quiropraxia', name: 'Quiropraxia' },
+  { id: 'reflexoterapia', name: 'Reflexoterapia' },
+  { id: 'reiki', name: 'Reiki' },
+  { id: 'shantala', name: 'Shantala' },
+  { id: 'terapia_comunitaria', name: 'Terapia Comunitária' },
+  { id: 'florais', name: 'Terapia de Florais' },
+  { id: 'termalismo', name: 'Termalismo / Crenoterapia' },
+  { id: 'yoga', name: 'Yoga' },
+];
