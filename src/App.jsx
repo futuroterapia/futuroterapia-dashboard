@@ -1,17 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { supabase } from './lib/supabase';
-import { therapies } from './data/therapies';
-import { therapists } from './data/therapists';
 
-const EVENT_LABELS = {
-  quiz_started: 'Quizzes iniciados',
-  quiz_completed: 'Quizzes concluídos',
-  result_shown: 'Resultados exibidos',
-  content_click: 'Cliques em conteúdo',
-  therapist_click: 'Cliques no terapeuta',
-  whatsapp_click: 'Cliques no WhatsApp',
-  share_click: 'Compartilhamentos',
-};
+const METRICS_URL = import.meta.env.VITE_METRICS_URL || 'https://quiz-futuroterapia.lovable.app/api/public/quiz-metrics';
 
 function PasscodeGate({ onUnlock }) {
   const [value, setValue] = useState('');
@@ -60,7 +49,7 @@ function KpiCard({ label, value }) {
 
 export default function App() {
   const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem('ft_admin_unlocked') === '1');
-  const [events, setEvents] = useState([]);
+  const [metrics, setMetrics] = useState(null);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState(null);
   const [therapyFilter, setTherapyFilter] = useState('all');
@@ -68,92 +57,50 @@ export default function App() {
 
   useEffect(() => {
     if (!unlocked) return;
-    if (!supabase) {
-      setErrorMsg('Supabase não configurado — defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY no .env.');
-      setLoading(false);
-      return;
-    }
     let active = true;
     (async () => {
-      const { data, error } = await supabase
-        .from('quiz_events')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(20000);
-      if (!active) return;
-      if (error) setErrorMsg(error.message);
-      else setEvents(data || []);
-      setLoading(false);
+      try {
+        const res = await fetch(METRICS_URL);
+        if (!res.ok) throw new Error(`Falha ao buscar métricas (${res.status})`);
+        const data = await res.json();
+        if (!active) return;
+        setMetrics(data);
+      } catch (err) {
+        if (active) setErrorMsg(err.message);
+      } finally {
+        if (active) setLoading(false);
+      }
     })();
     return () => { active = false; };
   }, [unlocked]);
 
-  const filtered = useMemo(() => {
-    return events.filter(e => {
-      if (therapyFilter !== 'all' && e.therapy_id !== therapyFilter) return false;
-      if (therapistFilter !== 'all' && e.therapist_id !== therapistFilter) return false;
-      return true;
-    });
-  }, [events, therapyFilter, therapistFilter]);
-
-  const counts = useMemo(() => {
+  const countByType = useMemo(() => {
     const c = {};
-    Object.keys(EVENT_LABELS).forEach(k => { c[k] = 0; });
-    filtered.forEach(e => { c[e.event_type] = (c[e.event_type] || 0) + 1; });
+    (metrics?.by_type || []).forEach(row => { c[row.event_type] = row.count; });
     return c;
-  }, [filtered]);
+  }, [metrics]);
 
   const byTherapy = useMemo(() => {
-    const map = {};
-    filtered.forEach(e => {
-      if (!e.therapy_id) return;
-      if (!map[e.therapy_id]) {
-        map[e.therapy_id] = {
-          id: e.therapy_id,
-          name: e.therapy_name || e.therapy_id,
-          principal: 0, secundario: 0, conteudo: 0, terapeuta: 0, whatsapp: 0,
-        };
-      }
-      const row = map[e.therapy_id];
-      if (e.event_type === 'result_shown') row.principal += 1;
-      if (e.event_type === 'content_click') row.conteudo += 1;
-      if (e.event_type === 'therapist_click') row.terapeuta += 1;
-      if (e.event_type === 'whatsapp_click') row.whatsapp += 1;
-    });
-    filtered.forEach(e => {
-      if (e.event_type === 'result_shown' && e.secondary_therapy_id) {
-        if (!map[e.secondary_therapy_id]) {
-          map[e.secondary_therapy_id] = {
-            id: e.secondary_therapy_id,
-            name: e.secondary_therapy_name || e.secondary_therapy_id,
-            principal: 0, secundario: 0, conteudo: 0, terapeuta: 0, whatsapp: 0,
-          };
-        }
-        map[e.secondary_therapy_id].secundario += 1;
-      }
-    });
-    return Object.values(map).sort((a, b) => b.principal - a.principal);
-  }, [filtered]);
+    let rows = metrics?.by_therapy || [];
+    if (therapistFilter !== 'all') rows = []; // filtro de terapeuta não se aplica à tabela de terapias
+    return [...rows].sort((a, b) => (b.principal || 0) - (a.principal || 0));
+  }, [metrics, therapistFilter]);
 
   const byTherapist = useMemo(() => {
-    const map = {};
-    filtered.forEach(e => {
-      if (!e.therapist_id) return;
-      if (!map[e.therapist_id]) {
-        map[e.therapist_id] = { id: e.therapist_id, name: e.therapist_name || e.therapist_id, terapeuta: 0, whatsapp: 0 };
-      }
-      if (e.event_type === 'therapist_click') map[e.therapist_id].terapeuta += 1;
-      if (e.event_type === 'whatsapp_click') map[e.therapist_id].whatsapp += 1;
-    });
-    return Object.values(map).sort((a, b) => b.whatsapp - a.whatsapp);
-  }, [filtered]);
+    let rows = metrics?.by_therapist || [];
+    if (therapyFilter !== 'all') rows = []; // filtro de terapia não se aplica à tabela de terapeutas
+    return [...rows].sort((a, b) => (b.whatsapp || 0) - (a.whatsapp || 0));
+  }, [metrics, therapyFilter]);
+
+  const therapyOptions = metrics?.by_therapy || [];
+  const therapistOptions = metrics?.by_therapist || [];
 
   const funnel = [
-    { label: 'Iniciou', value: counts.quiz_started },
-    { label: 'Concluiu', value: counts.quiz_completed },
-    { label: 'Viu conteúdo', value: counts.content_click },
-    { label: 'Clicou terapeuta', value: counts.therapist_click },
-    { label: 'WhatsApp aberto', value: counts.whatsapp_click },
+    { label: 'Iniciou', value: countByType.quiz_started || 0 },
+    { label: 'Concluiu', value: countByType.quiz_completed || 0 },
+    { label: 'Viu conteúdo', value: countByType.content_click || 0 },
+    { label: 'Clicou terapeuta', value: countByType.therapist_click || 0 },
+    { label: 'WhatsApp aberto', value: countByType.whatsapp_click || 0 },
   ];
 
   if (!unlocked) return <PasscodeGate onUnlock={() => setUnlocked(true)} />;
@@ -184,7 +131,7 @@ export default function App() {
                 className="border border-[#e0d0f5] rounded-xl px-3 py-2 text-sm bg-white text-[#3d2b55]"
               >
                 <option value="all">Todas as terapias</option>
-                {therapies.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {therapyOptions.map(t => <option key={t.therapy_id} value={t.therapy_id}>{t.therapy_name}</option>)}
               </select>
               <select
                 value={therapistFilter}
@@ -192,15 +139,21 @@ export default function App() {
                 className="border border-[#e0d0f5] rounded-xl px-3 py-2 text-sm bg-white text-[#3d2b55]"
               >
                 <option value="all">Todos os terapeutas</option>
-                {therapists.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+                {therapistOptions.map(t => <option key={t.therapist_id} value={t.therapist_id}>{t.therapist_name}</option>)}
               </select>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-              <KpiCard label="Quizzes iniciados" value={counts.quiz_started} />
-              <KpiCard label="Quizzes concluídos" value={counts.quiz_completed} />
-              <KpiCard label="Cliques em conteúdo" value={counts.content_click} />
-              <KpiCard label="Cliques no WhatsApp" value={counts.whatsapp_click} />
+              <KpiCard label="Quizzes iniciados" value={countByType.quiz_started || 0} />
+              <KpiCard label="Quizzes concluídos" value={countByType.quiz_completed || 0} />
+              <KpiCard label="Cliques em conteúdo" value={countByType.content_click || 0} />
+              <KpiCard label="Cliques no WhatsApp" value={countByType.whatsapp_click || 0} />
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+              <KpiCard label="Total de eventos" value={metrics?.total_events || 0} />
+              <KpiCard label="Sessões únicas" value={metrics?.unique_sessions || 0} />
+              <KpiCard label="Eventos nas últimas 24h" value={metrics?.last_24h_events || 0} />
             </div>
 
             <div className="bg-white/80 rounded-2xl p-5 mb-6 border border-[#e0d0f5] shadow-sm overflow-x-auto">
@@ -221,7 +174,7 @@ export default function App() {
             <div className="bg-white/80 rounded-2xl p-5 mb-6 border border-[#e0d0f5] shadow-sm overflow-x-auto">
               <p className="text-[#3d2b55] font-semibold text-sm mb-3">Comparativo entre terapias</p>
               {byTherapy.length === 0 ? (
-                <p className="text-[#9d7bb5] text-sm">Sem dados ainda para esse filtro.</p>
+                <p className="text-[#9d7bb5] text-sm">Sem dados ainda{therapistFilter !== 'all' ? ' (limpe o filtro de terapeuta para ver esta tabela)' : ''}.</p>
               ) : (
                 <table className="w-full text-sm min-w-[480px]">
                   <thead>
@@ -235,16 +188,18 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {byTherapy.map(row => (
-                      <tr key={row.id} className="border-t border-[#f0e6fa]">
-                        <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{row.name}</td>
-                        <td className="py-1.5 pr-2 text-right">{row.principal}</td>
-                        <td className="py-1.5 pr-2 text-right">{row.secundario}</td>
-                        <td className="py-1.5 pr-2 text-right">{row.conteudo}</td>
-                        <td className="py-1.5 pr-2 text-right">{row.terapeuta}</td>
-                        <td className="py-1.5 text-right">{row.whatsapp}</td>
-                      </tr>
-                    ))}
+                    {byTherapy
+                      .filter(row => therapyFilter === 'all' || row.therapy_id === therapyFilter)
+                      .map(row => (
+                        <tr key={row.therapy_id} className="border-t border-[#f0e6fa]">
+                          <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{row.therapy_name}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.principal || 0}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.secundario || 0}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.conteudo || 0}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.terapeuta || 0}</td>
+                          <td className="py-1.5 text-right">{row.whatsapp || 0}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               )}
@@ -253,7 +208,7 @@ export default function App() {
             <div className="bg-white/80 rounded-2xl p-5 border border-[#e0d0f5] shadow-sm overflow-x-auto">
               <p className="text-[#3d2b55] font-semibold text-sm mb-3">Resultados por terapeuta</p>
               {byTherapist.length === 0 ? (
-                <p className="text-[#9d7bb5] text-sm">Sem dados ainda para esse filtro.</p>
+                <p className="text-[#9d7bb5] text-sm">Sem dados ainda{therapyFilter !== 'all' ? ' (limpe o filtro de terapia para ver esta tabela)' : ''}.</p>
               ) : (
                 <table className="w-full text-sm min-w-[360px]">
                   <thead>
@@ -264,13 +219,15 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {byTherapist.map(row => (
-                      <tr key={row.id} className="border-t border-[#f0e6fa]">
-                        <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{row.name}</td>
-                        <td className="py-1.5 pr-2 text-right">{row.terapeuta}</td>
-                        <td className="py-1.5 text-right">{row.whatsapp}</td>
-                      </tr>
-                    ))}
+                    {byTherapist
+                      .filter(row => therapistFilter === 'all' || row.therapist_id === therapistFilter)
+                      .map(row => (
+                        <tr key={row.therapist_id} className="border-t border-[#f0e6fa]">
+                          <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{row.therapist_name}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.terapeuta || 0}</td>
+                          <td className="py-1.5 text-right">{row.whatsapp || 0}</td>
+                        </tr>
+                      ))}
                   </tbody>
                 </table>
               )}
