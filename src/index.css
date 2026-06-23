@@ -16,3 +16,25 @@ body {
   width: 100%;
   min-height: 100svh;
 }
+
+/* Gera PDF via "Imprimir > Salvar como PDF" mostrando só o card do terapeuta */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #therapist-print-section,
+  #therapist-print-section * {
+    visibility: visible;
+  }
+  #therapist-print-section {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    margin: 0;
+    padding: 24px;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

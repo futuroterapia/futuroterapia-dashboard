@@ -9,6 +9,44 @@ const STATUS_COLORS = {
   rascunho: { bg: '#f3e8ff', text: '#6b21a8' },
 };
 
+const PERIOD_PRESETS = [
+  { key: 'today', label: 'Hoje' },
+  { key: '7d', label: '7 dias' },
+  { key: '30d', label: '30 dias' },
+  { key: 'all', label: 'Tudo' },
+  { key: 'custom', label: 'Personalizado' },
+];
+
+// Converte o preset selecionado em datas ISO (start/end) para enviar à API.
+// 'all' e datas vazias resultam em null — sem filtro de período.
+function resolvePeriod(preset, customStart, customEnd) {
+  const now = new Date();
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+  if (preset === 'all') return { start: null, end: null };
+
+  if (preset === 'custom') {
+    return {
+      start: customStart ? new Date(customStart + 'T00:00:00').toISOString() : null,
+      end: customEnd ? new Date(customEnd + 'T23:59:59').toISOString() : null,
+    };
+  }
+
+  const daysMap = { today: 0, '7d': 6, '30d': 29 };
+  const days = daysMap[preset] ?? 6;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days, 0, 0, 0, 0);
+  return { start: start.toISOString(), end: endOfToday.toISOString() };
+}
+
+function formatDateBR(iso) {
+  if (!iso) return null;
+  try {
+    return new Date(iso).toLocaleDateString('pt-BR');
+  } catch {
+    return null;
+  }
+}
+
 function PasscodeGate({ onUnlock }) {
   const [value, setValue] = useState('');
   const [error, setError] = useState(false);
@@ -64,13 +102,27 @@ export default function App() {
   const [therapists, setTherapists] = useState([]);
   const [therapistsLoading, setTherapistsLoading] = useState(true);
   const [therapistsError, setTherapistsError] = useState(null);
+  const [periodPreset, setPeriodPreset] = useState('30d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const period = useMemo(
+    () => resolvePeriod(periodPreset, customStart, customEnd),
+    [periodPreset, customStart, customEnd],
+  );
 
   useEffect(() => {
     if (!unlocked) return;
     let active = true;
+    setLoading(true);
+    setErrorMsg(null);
     (async () => {
       try {
-        const res = await fetch(METRICS_URL);
+        const params = new URLSearchParams();
+        if (period.start) params.set('start', period.start);
+        if (period.end) params.set('end', period.end);
+        const qs = params.toString();
+        const res = await fetch(qs ? `${METRICS_URL}?${qs}` : METRICS_URL);
         if (!res.ok) throw new Error(`Falha ao buscar métricas (${res.status})`);
         const data = await res.json();
         if (!active) return;
@@ -82,7 +134,7 @@ export default function App() {
       }
     })();
     return () => { active = false; };
-  }, [unlocked]);
+  }, [unlocked, period.start, period.end]);
 
   // Busca a lista de terapeutas cadastrados diretamente da planilha
   // (via endpoint público do quiz) — sempre atualizado a cada carregamento.
@@ -134,6 +186,37 @@ export default function App() {
     { label: 'WhatsApp aberto', value: countByType.whatsapp_click || 0 },
   ];
 
+  // Dados do terapeuta selecionado, para a visão detalhada com funil próprio.
+  const selectedTherapist = useMemo(
+    () => therapistOptions.find(t => t.therapist_id === therapistFilter) || null,
+    [therapistOptions, therapistFilter],
+  );
+
+  const therapistFunnel = useMemo(() => {
+    if (!selectedTherapist) return [];
+    const shownTotal = (selectedTherapist.shown_principal || 0) + (selectedTherapist.shown_secondary || 0);
+    const profileClicks = selectedTherapist.terapeuta || 0;
+    const waClicks = selectedTherapist.whatsapp || 0;
+    const pct = (num, base) => (base > 0 ? Math.round((num / base) * 100) : null);
+    return [
+      { label: 'Apareceu no resultado', value: shownTotal, pctFromPrev: null },
+      { label: 'Clicou no perfil', value: profileClicks, pctFromPrev: pct(profileClicks, shownTotal) },
+      { label: 'Clicou no WhatsApp', value: waClicks, pctFromPrev: pct(waClicks, profileClicks) },
+    ];
+  }, [selectedTherapist]);
+
+  const periodLabel = useMemo(() => {
+    const startLabel = formatDateBR(period.start);
+    const endLabel = formatDateBR(period.end);
+    if (!startLabel && !endLabel) return 'Todo o período';
+    if (startLabel === endLabel) return startLabel;
+    return `${startLabel ?? '...'} – ${endLabel ?? 'hoje'}`;
+  }, [period]);
+
+  const handleGeneratePdf = () => {
+    window.print();
+  };
+
   if (!unlocked) return <PasscodeGate onUnlock={() => setUnlocked(true)} />;
 
   return (
@@ -155,7 +238,42 @@ export default function App() {
           <p className="text-center text-[#9d7bb5] text-sm">Carregando dados...</p>
         ) : (
           <>
-            <div className="flex flex-wrap gap-3 mb-6">
+            <div className="no-print flex flex-wrap items-center gap-2 mb-3">
+              <span className="text-[#9d7bb5] text-xs font-medium">Período:</span>
+              {PERIOD_PRESETS.map(p => (
+                <button
+                  key={p.key}
+                  onClick={() => setPeriodPreset(p.key)}
+                  className={
+                    'px-3 py-1.5 rounded-xl text-xs font-medium border transition-colors ' +
+                    (periodPreset === p.key
+                      ? 'bg-[#7C16A7] border-[#7C16A7] text-white'
+                      : 'bg-white border-[#e0d0f5] text-[#3d2b55] hover:border-[#7C16A7]')
+                  }
+                >
+                  {p.label}
+                </button>
+              ))}
+              {periodPreset === 'custom' && (
+                <span className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={(e) => setCustomStart(e.target.value)}
+                    className="border border-[#e0d0f5] rounded-lg px-2 py-1.5 text-xs bg-white text-[#3d2b55]"
+                  />
+                  <span className="text-[#9d7bb5] text-xs">até</span>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={(e) => setCustomEnd(e.target.value)}
+                    className="border border-[#e0d0f5] rounded-lg px-2 py-1.5 text-xs bg-white text-[#3d2b55]"
+                  />
+                </span>
+              )}
+            </div>
+
+            <div className="no-print flex flex-wrap gap-3 mb-6">
               <select
                 value={therapyFilter}
                 onChange={(e) => setTherapyFilter(e.target.value)}
@@ -236,15 +354,17 @@ export default function App() {
               )}
             </div>
 
-            <div className="bg-white/80 rounded-2xl p-5 border border-[#e0d0f5] shadow-sm overflow-x-auto">
+            <div className="no-print bg-white/80 rounded-2xl p-5 border border-[#e0d0f5] shadow-sm overflow-x-auto">
               <p className="text-[#3d2b55] font-semibold text-sm mb-3">Resultados por terapeuta</p>
               {byTherapist.length === 0 ? (
                 <p className="text-[#9d7bb5] text-sm">Sem dados ainda{therapyFilter !== 'all' ? ' (limpe o filtro de terapia para ver esta tabela)' : ''}.</p>
               ) : (
-                <table className="w-full text-sm min-w-[360px]">
+                <table className="w-full text-sm min-w-[480px]">
                   <thead>
                     <tr className="text-[#9d7bb5] text-left">
                       <th className="py-1.5 pr-2">Terapeuta</th>
+                      <th className="py-1.5 pr-2 text-right">Result. principal</th>
+                      <th className="py-1.5 pr-2 text-right">Result. secundário</th>
                       <th className="py-1.5 pr-2 text-right">Cliques no perfil</th>
                       <th className="py-1.5 text-right">Cliques no WhatsApp</th>
                     </tr>
@@ -255,6 +375,8 @@ export default function App() {
                       .map(row => (
                         <tr key={row.therapist_id} className="border-t border-[#f0e6fa]">
                           <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{row.therapist_name}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.shown_principal || 0}</td>
+                          <td className="py-1.5 pr-2 text-right">{row.shown_secondary || 0}</td>
                           <td className="py-1.5 pr-2 text-right">{row.terapeuta || 0}</td>
                           <td className="py-1.5 text-right">{row.whatsapp || 0}</td>
                         </tr>
@@ -263,6 +385,53 @@ export default function App() {
                 </table>
               )}
             </div>
+
+            {selectedTherapist && (
+              <div
+                id="therapist-print-section"
+                className="bg-white rounded-2xl p-6 mt-6 border border-[#e0d0f5] shadow-sm"
+              >
+                <div className="flex items-center justify-between mb-1">
+                  <div>
+                    <p className="text-[#7C16A7] font-bold text-xs tracking-widest uppercase mb-1">Futuroterapia</p>
+                    <h2 className="text-[#2d1b4e] font-extrabold text-xl">{selectedTherapist.therapist_name}</h2>
+                  </div>
+                  <button
+                    onClick={handleGeneratePdf}
+                    className="no-print bg-[#7C16A7] hover:bg-[#6a1290] text-white text-sm font-semibold px-4 py-2 rounded-xl cursor-pointer transition-colors"
+                  >
+                    Gerar PDF
+                  </button>
+                </div>
+                <p className="text-[#9d7bb5] text-sm mb-5">Relatório de desempenho · {periodLabel}</p>
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+                  <KpiCard label="Apareceu como principal" value={selectedTherapist.shown_principal || 0} />
+                  <KpiCard label="Apareceu como secundário" value={selectedTherapist.shown_secondary || 0} />
+                  <KpiCard label="Cliques no perfil" value={selectedTherapist.terapeuta || 0} />
+                  <KpiCard label="Cliques no WhatsApp" value={selectedTherapist.whatsapp || 0} />
+                </div>
+
+                <p className="text-[#3d2b55] font-semibold text-sm mb-3">Funil de conversão do terapeuta</p>
+                <div className="flex items-center gap-2 min-w-max mb-2 flex-wrap">
+                  {therapistFunnel.map((f, i) => (
+                    <div key={f.label} className="flex items-center gap-2">
+                      <div className="bg-[#f3e8ff] rounded-xl px-4 py-2 text-center min-w-[120px]">
+                        <p className="text-[#9d7bb5] text-xs">{f.label}</p>
+                        <p className="text-[#2d1b4e] font-bold text-base">{f.value}</p>
+                        {f.pctFromPrev !== null && (
+                          <p className="text-[#7C16A7] text-[11px] font-semibold mt-0.5">{f.pctFromPrev}% de conversão</p>
+                        )}
+                      </div>
+                      {i < therapistFunnel.length - 1 && <span className="text-[#c4b5fd]">→</span>}
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[#9d7bb5] text-xs mt-4">
+                  Gerado em {new Date().toLocaleString('pt-BR')} · Dashboard Futuroterapia
+                </p>
+              </div>
+            )}
 
             <div className="bg-white/80 rounded-2xl p-5 mt-6 border border-[#e0d0f5] shadow-sm overflow-x-auto">
               <div className="flex items-center justify-between mb-3">
