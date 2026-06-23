@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 
 const METRICS_URL = import.meta.env.VITE_METRICS_URL || 'https://descubra.futuroterapia.com/api/public/quiz-metrics';
+const THERAPISTS_URL = import.meta.env.VITE_THERAPISTS_URL || 'https://descubra.futuroterapia.com/api/public/therapists';
+
+const STATUS_COLORS = {
+  publicado: { bg: '#dcfce7', text: '#166534' },
+  pendente: { bg: '#fef3c7', text: '#92400e' },
+  rascunho: { bg: '#f3e8ff', text: '#6b21a8' },
+};
 
 function PasscodeGate({ onUnlock }) {
   const [value, setValue] = useState('');
@@ -54,6 +61,9 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState(null);
   const [therapyFilter, setTherapyFilter] = useState('all');
   const [therapistFilter, setTherapistFilter] = useState('all');
+  const [therapists, setTherapists] = useState([]);
+  const [therapistsLoading, setTherapistsLoading] = useState(true);
+  const [therapistsError, setTherapistsError] = useState(null);
 
   useEffect(() => {
     if (!unlocked) return;
@@ -69,6 +79,27 @@ export default function App() {
         if (active) setErrorMsg(err.message);
       } finally {
         if (active) setLoading(false);
+      }
+    })();
+    return () => { active = false; };
+  }, [unlocked]);
+
+  // Busca a lista de terapeutas cadastrados diretamente da planilha
+  // (via endpoint público do quiz) — sempre atualizado a cada carregamento.
+  useEffect(() => {
+    if (!unlocked) return;
+    let active = true;
+    (async () => {
+      try {
+        const res = await fetch(THERAPISTS_URL);
+        if (!res.ok) throw new Error(`Falha ao buscar terapeutas (${res.status})`);
+        const data = await res.json();
+        if (!active) return;
+        setTherapists(data.therapists || []);
+      } catch (err) {
+        if (active) setTherapistsError(err.message);
+      } finally {
+        if (active) setTherapistsLoading(false);
       }
     })();
     return () => { active = false; };
@@ -228,6 +259,53 @@ export default function App() {
                           <td className="py-1.5 text-right">{row.whatsapp || 0}</td>
                         </tr>
                       ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <div className="bg-white/80 rounded-2xl p-5 mt-6 border border-[#e0d0f5] shadow-sm overflow-x-auto">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-[#3d2b55] font-semibold text-sm">Terapeutas cadastrados</p>
+                <span className="text-[#9d7bb5] text-xs">{therapists.length} no total · atualizado a cada carregamento da página</span>
+              </div>
+              {therapistsLoading ? (
+                <p className="text-[#9d7bb5] text-sm">Carregando terapeutas...</p>
+              ) : therapistsError ? (
+                <p className="text-[#a02d00] text-sm">{therapistsError}</p>
+              ) : therapists.length === 0 ? (
+                <p className="text-[#9d7bb5] text-sm">Nenhum terapeuta cadastrado ainda.</p>
+              ) : (
+                <table className="w-full text-sm min-w-[560px]">
+                  <thead>
+                    <tr className="text-[#9d7bb5] text-left">
+                      <th className="py-1.5 pr-2">Nome</th>
+                      <th className="py-1.5 pr-2">Especialidade</th>
+                      <th className="py-1.5 pr-2">WhatsApp</th>
+                      <th className="py-1.5 pr-2">Cidade</th>
+                      <th className="py-1.5">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {therapists.map((t, i) => {
+                      const statusColor = STATUS_COLORS[t.status] || { bg: '#f3f4f6', text: '#4b5563' };
+                      return (
+                        <tr key={`${t.nome}-${i}`} className="border-t border-[#f0e6fa]">
+                          <td className="py-1.5 pr-2 text-[#2d1b4e] font-medium">{t.nome}</td>
+                          <td className="py-1.5 pr-2 text-[#3d2b55] max-w-[220px] truncate" title={t.especialidade}>{t.especialidade}</td>
+                          <td className="py-1.5 pr-2 text-[#3d2b55]">{t.whatsapp}</td>
+                          <td className="py-1.5 pr-2 text-[#3d2b55]">{t.cidade}</td>
+                          <td className="py-1.5">
+                            <span
+                              className="px-2 py-0.5 rounded-full text-xs font-medium"
+                              style={{ background: statusColor.bg, color: statusColor.text }}
+                            >
+                              {t.status || '—'}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
