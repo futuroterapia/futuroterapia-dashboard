@@ -76,7 +76,7 @@ export default function App() {
 
   const countByType = useMemo(() => {
     const c = {};
-    (metrics?.by_type || []).forEach(row => { c[row.event_type] = row.count; });
+    (metrics?.by_type || []).forEach(row => { c[row.type] = row.count; });
     return c;
   }, [metrics]);
 
