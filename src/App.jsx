@@ -194,12 +194,19 @@ export default function App() {
 
   const therapistFunnel = useMemo(() => {
     if (!selectedTherapist) return [];
-    const shownTotal = (selectedTherapist.shown_principal || 0) + (selectedTherapist.shown_secondary || 0);
+    const shownPrincipal = selectedTherapist.shown_principal || 0;
+    const shownSecondary = selectedTherapist.shown_secondary || 0;
+    const shownTotal = shownPrincipal + shownSecondary;
     const profileClicks = selectedTherapist.terapeuta || 0;
     const waClicks = selectedTherapist.whatsapp || 0;
     const pct = (num, base) => (base > 0 ? Math.round((num / base) * 100) : null);
     return [
-      { label: 'Apareceu no resultado', value: shownTotal, pctFromPrev: null },
+      {
+        label: 'Apareceu no resultado',
+        value: shownTotal,
+        pctFromPrev: null,
+        sublabel: `${shownPrincipal} principal + ${shownSecondary} secundário`,
+      },
       { label: 'Clicou no perfil', value: profileClicks, pctFromPrev: pct(profileClicks, shownTotal) },
       { label: 'Clicou no WhatsApp', value: waClicks, pctFromPrev: pct(waClicks, profileClicks) },
     ];
@@ -419,6 +426,9 @@ export default function App() {
                       <div className="bg-[#f3e8ff] rounded-xl px-4 py-2 text-center min-w-[120px]">
                         <p className="text-[#9d7bb5] text-xs">{f.label}</p>
                         <p className="text-[#2d1b4e] font-bold text-base">{f.value}</p>
+                        {f.sublabel && (
+                          <p className="text-[#9d7bb5] text-[10px] mt-0.5">{f.sublabel}</p>
+                        )}
                         {f.pctFromPrev !== null && (
                           <p className="text-[#7C16A7] text-[11px] font-semibold mt-0.5">{f.pctFromPrev}% de conversão</p>
                         )}
